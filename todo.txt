@@ -1,0 +1,67 @@
+TECHNOPOLY WEB CONVERSION TODO
+================================
+
+PHASE 1: PROJECT SETUP & CORE LOGIC TRANSLATION
+[✓] Set up Svelte project with Vite and Tailwind CSS
+[✓] Create project structure
+[✓] Translate Python models to JavaScript (models.js, loan.js)
+[✓] Translate utility functions (utils.js)
+[✓] Translate configuration (configs.js)
+[✓] Translate financial logic (finances.js)
+[✓] Translate event system (events.js)
+[✓] Translate AI controller (ai.js)
+[✓] Translate game engine (engine.js)
+[✓] Translate data store (data_store.js)
+
+PHASE 2: UI DEVELOPMENT
+[✓] Basic application shell (App.svelte)
+[✓] Splash screen and main menu
+[✓] Player setup screen
+[✓] Main game interface - tabs and panels
+[✓] Summary tab
+[ ] Products tab
+[ ] Finances tab
+[ ] Operations tab
+[ ] Stock market tab
+[ ] Acquisitions tab
+[✓] News feed panel
+[✓] Competitor moves panel
+[✓] Dialogs and modals (basic game over screen)
+[✓] End turn button and logic
+[✓] Game over screen
+
+PHASE 3: INTERACTIVITY & POLISH
+[ ] State management with Svelte stores
+[ ] Event handling
+[ ] Animations and transitions
+[ ] Responsiveness
+[ ] Local storage for save/load
+
+PHASE 4: TESTING & REFINEMENT
+[ ] Test all game mechanics
+[ ] Test UI interactions
+[ ] Performance optimization
+[ ] Bug fixes
+
+CURRENT STATUS: Fixed PlayerSetup component integration issues
+
+RECENT FIXES:
+4. [✓] Fixed PlayerSetup component step 2 issue:
+   - [✓] Added missing formatMoney import in PlayerSetup.svelte
+   - [✓] Fixed market.formatMoney() call to use imported formatMoney function
+   - [✓] Game engine now properly initializes and markets display correctly
+
+ISSUES FOUND:
+1. [✓] Fixed import error - Loan was being imported from wrong file
+2. [✓] Engine.js missing key functionality compared to main.py:
+   - [✓] Added imaginary product creation in spawnNewProductMarket
+   - [✓] Added revenue stealing logic in spawnNewAiCompanies  
+   - [✓] Added proper market size initialization
+   - [✓] Fixed _findProductsInMarket to include imaginary products
+3. [✓] AI.js significantly simplified compared to ai.py:
+   - [✓] Added complex tier-specific logic for all 4 tiers
+   - [✓] Added acquisition logic for Medium, Large, and Big Tech
+   - [✓] Added campus building logic with tier-appropriate choices
+   - [✓] Enhanced employee assignment logic
+   - [✓] Added bond investment strategies
+   - [✓] Added liquidity management 
