@@ -49,6 +49,36 @@ export class Product {
         }, 0);
         this.effectiveness = totalEffSpend / denom;
     }
+
+    toJSON() {
+        /**
+         * Serialize product to plain JavaScript object.
+         */
+        return {
+            ownerName: this.ownerName,
+            marketName: this.marketName,
+            assignedEmployees: { ...this.assignedEmployees },
+            effectiveSpend: { ...this.effectiveSpend },
+            effectiveness: this.effectiveness,
+            revenue: this.revenue,
+            recentGrowth: [...this.recentGrowth]
+        };
+    }
+
+    static fromJSON(data) {
+        /**
+         * Recreate Product instance from serialized data.
+         */
+        const product = new Product(data.ownerName, data.marketName);
+        
+        product.assignedEmployees = data.assignedEmployees || { "r&d": 0, "q&a": 0, "marketing": 0 };
+        product.effectiveSpend = data.effectiveSpend || { "r&d": 0.0, "q&a": 0.0, "marketing": 0.0 };
+        product.effectiveness = data.effectiveness || 0.0;
+        product.revenue = data.revenue || 0.0;
+        product.recentGrowth = data.recentGrowth || [];
+        
+        return product;
+    }
 }
 
 // --- Bond Class ---
@@ -62,6 +92,27 @@ export class Bond {
 
     quarterlyInterest() {
         return this.principal * (this.annualRate / 4.0);
+    }
+
+    toJSON() {
+        /**
+         * Serialize bond to plain JavaScript object.
+         */
+        return {
+            principal: this.principal,
+            annualRate: this.annualRate,
+            termRemaining: this.termRemaining,
+            originalTerm: this.originalTerm
+        };
+    }
+
+    static fromJSON(data) {
+        /**
+         * Recreate Bond instance from serialized data.
+         */
+        const bond = new Bond(data.principal, data.annualRate, data.originalTerm);
+        bond.termRemaining = data.termRemaining || data.originalTerm;
+        return bond;
     }
 }
 
@@ -130,6 +181,73 @@ export class Company {
     isBankrupt() {
         return this._negativeCashQuarters >= 4;
     }
+
+    get consecutiveNegativeCashQuarters() {
+        return this._negativeCashQuarters;
+    }
+
+    toJSON() {
+        /**
+         * Serialize company to plain JavaScript object.
+         */
+        return {
+            name: this.name,
+            tier: this.tier,
+            cash: this.cash,
+            debt: this.debt,
+            debtMonthlyPayment: this.debtMonthlyPayment,
+            debtInterestRate: this.debtInterestRate,
+            debtRemainingMonths: this.debtRemainingMonths,
+            employees: this.employees,
+            marketCap: this.marketCap,
+            products: Object.fromEntries(
+                Object.entries(this.products).map(([name, product]) => [name, product.toJSON()])
+            ),
+            loans: this.loans.map(loan => loan.toJSON()),
+            bonds: this.bonds.map(bond => bond.toJSON()),
+            pastQuarterProfits: [...this.pastQuarterProfits],
+            campuses: this.campuses.map(campus => [...campus]), // Deep copy arrays
+            _negativeCashQuarters: this._negativeCashQuarters,
+            pastQuarterRevenues: [...this.pastQuarterRevenues],
+            lastAcquisitionQuarter: this.lastAcquisitionQuarter
+        };
+    }
+
+    static fromJSON(data) {
+        /**
+         * Recreate Company instance from serialized data.
+         */
+        const company = new Company(data.name, data.tier);
+        
+        company.cash = data.cash || 0.0;
+        company.debt = data.debt || 0.0;
+        company.debtMonthlyPayment = data.debtMonthlyPayment || 0.0;
+        company.debtInterestRate = data.debtInterestRate || 0.06;
+        company.debtRemainingMonths = data.debtRemainingMonths || 0;
+        company.employees = data.employees || 0;
+        company.marketCap = data.marketCap || 0.0;
+        company.pastQuarterProfits = data.pastQuarterProfits || [0.0, 0.0, 0.0];
+        company.campuses = data.campuses || [];
+        company._negativeCashQuarters = data._negativeCashQuarters || 0;
+        company.pastQuarterRevenues = data.pastQuarterRevenues || [0.0, 0.0, 0.0];
+        company.lastAcquisitionQuarter = data.lastAcquisitionQuarter || -100;
+        
+        // Restore products
+        company.products = {};
+        if (data.products) {
+            Object.entries(data.products).forEach(([name, productData]) => {
+                company.products[name] = Product.fromJSON(productData);
+            });
+        }
+        
+        // Restore loans
+        company.loans = (data.loans || []).map(loanData => Loan.fromJSON(loanData));
+        
+        // Restore bonds
+        company.bonds = (data.bonds || []).map(bondData => Bond.fromJSON(bondData));
+        
+        return company;
+    }
 }
 
 // --- Market Class ---
@@ -153,5 +271,39 @@ export class Market {
                 this.isInGlobalRecession = false;
             }
         }
+    }
+
+    toJSON() {
+        /**
+         * Serialize market to plain JavaScript object.
+         */
+        return {
+            name: this.name,
+            size: this.size,
+            baseGrowthRate: this.baseGrowthRate,
+            growthRate: this.growthRate,
+            quartersElapsed: this.quartersElapsed,
+            isInGlobalRecession: this.isInGlobalRecession,
+            recessionQuartersLeft: this.recessionQuartersLeft,
+            lastQuarterTotalRevenue: this.lastQuarterTotalRevenue,
+            // Note: imaginaryProduct is not serialized as it's recreated when needed
+        };
+    }
+
+    static fromJSON(data) {
+        /**
+         * Recreate Market instance from serialized data.
+         */
+        const market = new Market(data.name);
+        
+        market.size = data.size || 0;
+        market.baseGrowthRate = data.baseGrowthRate || 0.05;
+        market.growthRate = data.growthRate || data.baseGrowthRate || 0.05;
+        market.quartersElapsed = data.quartersElapsed || 0;
+        market.isInGlobalRecession = data.isInGlobalRecession || false;
+        market.recessionQuartersLeft = data.recessionQuartersLeft || 0;
+        market.lastQuarterTotalRevenue = data.lastQuarterTotalRevenue || 0.0;
+        
+        return market;
     }
 } 

@@ -825,6 +825,114 @@ export class BusinessGameEngine {
     }
 
     // ===========================
+    //      SAVE/LOAD FUNCTIONALITY
+    // ===========================
+    toJSON() {
+        /**
+         * Serialize the entire game state to a plain JavaScript object.
+         * This can be stored in localStorage or sent to a server.
+         */
+        return {
+            // Core game state
+            turnIndex: this.turnIndex,
+            startYear: this.startYear,
+            gameOver: this.gameOver,
+            
+            // Player data
+            player: this.player ? this.player.toJSON() : null,
+            
+            // AI companies
+            aiCompanies: this.aiCompanies.map(company => company.toJSON()),
+            
+            // Markets
+            markets: this.markets.map(market => market.toJSON()),
+            
+            // Spawn tracking
+            spawnedAiCount: this.spawnedAiCount,
+            spawnedMarketCount: this.spawnedMarketCount,
+            
+            // Used names (convert Sets to Arrays)
+            usedCompanyNames: Array.from(this.usedCompanyNames),
+            usedProductNames: Array.from(this.usedProductNames),
+            
+            // Pending acquisitions
+            pendingAcquisitions: this.pendingAcquisitions.map(acq => ({
+                buyerName: acq[0].name,
+                targetName: acq[1],
+                price: acq[2],
+                turnSubmitted: acq[3]
+            })),
+            
+            // News feeds
+            newsFeed: this.newsFeed,
+            competitorNewsFeed: this.competitorNewsFeed,
+            
+            // Market names for spawning
+            spawnMarketNames: this.spawnMarketNames,
+            
+            // Save metadata
+            saveVersion: '1.0',
+            saveDate: new Date().toISOString()
+        };
+    }
+
+    static fromJSON(jsonData, eventManager = null, aiController = null) {
+        /**
+         * Recreate a BusinessGameEngine instance from serialized data.
+         * This restores the complete game state from a save file.
+         */
+        const engine = new BusinessGameEngine();
+        
+        // Restore core game state
+        engine.turnIndex = jsonData.turnIndex || 0;
+        engine.startYear = jsonData.startYear || 2000;
+        engine.gameOver = jsonData.gameOver || false;
+        
+        // Restore spawn tracking
+        engine.spawnedAiCount = jsonData.spawnedAiCount || 0;
+        engine.spawnedMarketCount = jsonData.spawnedMarketCount || 0;
+        
+        // Restore used names (convert Arrays back to Sets)
+        engine.usedCompanyNames = new Set(jsonData.usedCompanyNames || []);
+        engine.usedProductNames = new Set(jsonData.usedProductNames || []);
+        
+        // Restore news feeds
+        engine.newsFeed = jsonData.newsFeed || [];
+        engine.competitorNewsFeed = jsonData.competitorNewsFeed || [];
+        
+        // Restore spawn market names
+        engine.spawnMarketNames = jsonData.spawnMarketNames || [
+            "Semiconductors", "Autonomous Vehicles", "Blockchain", "Telecommunications",
+            "VR Software", "Cloud Gaming", "Quantum Computing", "Smart Home",
+            "Streaming Platforms", "GreenTech", "Wearables", "Video Games"
+        ];
+        
+        // Restore markets
+        engine.markets = jsonData.markets.map(marketData => Market.fromJSON(marketData));
+        
+        // Restore AI companies
+        engine.aiCompanies = jsonData.aiCompanies.map(companyData => Company.fromJSON(companyData));
+        
+        // Restore player
+        engine.player = jsonData.player ? Company.fromJSON(jsonData.player) : null;
+        
+        // Restore pending acquisitions (need to find company references)
+        engine.pendingAcquisitions = jsonData.pendingAcquisitions.map(acqData => {
+            const buyer = engine.player?.name === acqData.buyerName ? 
+                engine.player : 
+                engine.aiCompanies.find(c => c.name === acqData.buyerName);
+            
+            return [buyer, acqData.targetName, acqData.price, acqData.turnSubmitted];
+        }).filter(acq => acq[0]); // Remove any acquisitions where buyer wasn't found
+        
+        // Re-initialize managers (use provided ones or create new)
+        engine.eventManager = eventManager || new EventManager(engine.markets);
+        engine.aiController = aiController || new AIController(engine);
+        
+        return engine;
+    }
+
+    // ===========================
     //      PLAYER ACTIONS
     // ===========================
     playerSetupCompany(companyName, marketName, productName) {
@@ -895,5 +1003,298 @@ export class BusinessGameEngine {
                 }
             }
         }
+    }
+
+    playerLaunchProduct(marketName, productName) {
+        /**
+         * Launch a new product in the specified market.
+         * Returns true if successful, false if failed.
+         */
+        const launchCost = 50000;
+        
+        // Validate inputs
+        if (!marketName || !productName) {
+            return { success: false, error: "Market name and product name are required" };
+        }
+        
+        // Check if product name already exists
+        if (this.player.products[productName]) {
+            return { success: false, error: "Product name already exists" };
+        }
+        
+        // Check if player already has a product in this market
+        const existingProduct = Object.values(this.player.products).find(p => p.marketName === marketName);
+        if (existingProduct) {
+            return { success: false, error: "You already have a product in this market" };
+        }
+        
+        // Check if market exists
+        const market = this.markets.find(m => m.name === marketName);
+        if (!market) {
+            return { success: false, error: "Market does not exist" };
+        }
+        
+        // Check if player can afford it
+        if (this.player.cash < launchCost) {
+            return { success: false, error: "Insufficient funds" };
+        }
+        
+        // Deduct cost
+        this.player.cash -= launchCost;
+        
+        // Create new product
+        const newProduct = new Product(this.player.name, marketName);
+        newProduct.assignedEmployees = { "r&d": 0, "q&a": 0, "marketing": 0 };
+        newProduct.revenue = 0;
+        
+        // Add to player's products
+        this.player.products[productName] = newProduct;
+        this.usedProductNames.add(productName);
+        
+        // Add news
+        this._pushNews(`${this.player.name} launched ${productName} in the ${marketName} market!`);
+        
+        return { success: true };
+    }
+
+    playerUpdateEmployeeAssignments(productName, assignments) {
+        /**
+         * Update employee assignments for a specific product.
+         * Returns true if successful, false if failed.
+         */
+        // Check if product exists
+        if (!this.player.products[productName]) {
+            return { success: false, error: "Product does not exist" };
+        }
+        
+        // Validate assignments
+        const totalAssigned = assignments['r&d'] + assignments['q&a'] + assignments['marketing'];
+        if (totalAssigned > this.player.employees) {
+            return { success: false, error: "Not enough employees available" };
+        }
+        
+        // Check for negative values
+        if (assignments['r&d'] < 0 || assignments['q&a'] < 0 || assignments['marketing'] < 0) {
+            return { success: false, error: "Employee assignments cannot be negative" };
+        }
+        
+        // Update assignments
+        this.player.products[productName].assignedEmployees = { ...assignments };
+        
+        return { success: true };
+    }
+
+    playerHireEmployees(count) {
+        /**
+         * Hire new employees for the player's company.
+         * Cost: $10k hiring cost + $15k quarterly salary per employee
+         */
+        if (count <= 0) {
+            return { success: false, error: "Must hire at least 1 employee" };
+        }
+        
+        const hiringCost = count * 10000; // $10k per employee
+        
+        // Check if player can afford it
+        if (this.player.cash < hiringCost) {
+            return { success: false, error: "Insufficient funds for hiring cost" };
+        }
+        
+        // Check capacity
+        if (this.player.employees + count > this.player.employeeCapacity()) {
+            return { success: false, error: "Not enough capacity for new employees" };
+        }
+        
+        // Deduct cost and hire employees
+        this.player.cash -= hiringCost;
+        this.player.employees += count;
+        
+        // Add news
+        this._pushNews(`${this.player.name} hired ${count} new employee${count === 1 ? '' : 's'}!`);
+        
+        return { success: true };
+    }
+
+    playerFireEmployees(count) {
+        /**
+         * Fire employees from the player's company.
+         * Cost: $7.5k severance pay per employee
+         */
+        if (count <= 0) {
+            return { success: false, error: "Must fire at least 1 employee" };
+        }
+        
+        if (count > this.player.employees) {
+            return { success: false, error: "Cannot fire more employees than you have" };
+        }
+        
+        const severanceCost = count * 7500; // $7.5k per employee
+        
+        // Check if player can afford severance
+        if (this.player.cash < severanceCost) {
+            return { success: false, error: "Insufficient funds for severance pay" };
+        }
+        
+        // Deduct severance and fire employees
+        this.player.cash -= severanceCost;
+        this.player.employees -= count;
+        
+        // Add news
+        this._pushNews(`${this.player.name} laid off ${count} employee${count === 1 ? '' : 's'}.`);
+        
+        return { success: true, severancePaid: severanceCost };
+    }
+
+    playerBuyCampus(campusType) {
+        /**
+         * Buy a new campus for the player's company.
+         */
+        if (!campusType) {
+            return { success: false, error: "Campus type is required" };
+        }
+        
+        // Check if campus type exists
+        if (!this.CAMPUS_TYPES[campusType]) {
+            return { success: false, error: "Invalid campus type" };
+        }
+        
+        // Check if player already owns this campus type
+        const alreadyOwned = this.player.campuses.some(campus => campus[0] === campusType);
+        if (alreadyOwned) {
+            return { success: false, error: "You already own this campus type" };
+        }
+        
+        const campusData = this.CAMPUS_TYPES[campusType];
+        
+        // Check if player can afford it
+        if (this.player.cash < campusData.cost) {
+            return { success: false, error: "Insufficient funds to purchase this campus" };
+        }
+        
+        // Deduct cost and add campus
+        this.player.cash -= campusData.cost;
+        this.player.campuses.push([
+            campusType,
+            campusData.cost,
+            campusData.overhead,
+            campusData.capacity
+        ]);
+        
+        // Add news
+        this._pushNews(`${this.player.name} purchased a ${campusType} campus!`);
+        
+        return { success: true };
+    }
+
+    playerTakeLoan(amount, termMonths, rate) {
+        /**
+         * Take out a loan for the player's company.
+         */
+        if (amount <= 0 || termMonths <= 0 || rate <= 0) {
+            return { success: false, error: "Invalid loan parameters" };
+        }
+        
+        if (amount < 10000) {
+            return { success: false, error: "Minimum loan amount is $10,000" };
+        }
+        
+        if (amount > 10000000) {
+            return { success: false, error: "Maximum loan amount is $10,000,000" };
+        }
+        
+        // Calculate monthly payment
+        const monthlyRate = rate / 12;
+        const monthlyPayment = amount * (monthlyRate * Math.pow(1 + monthlyRate, termMonths)) / 
+                              (Math.pow(1 + monthlyRate, termMonths) - 1);
+        
+        // Risk check - monthly payment shouldn't exceed 10% of current cash
+        if (monthlyPayment > this.player.cash * 0.1) {
+            return { success: false, error: "Monthly payment too high relative to cash reserves" };
+        }
+        
+        // Create loan
+        const loan = new this.Loan(amount, rate, termMonths);
+        
+        // Add cash and loan
+        this.player.cash += amount;
+        this.player.loans.push(loan);
+        
+        // Add news
+        this._pushNews(`${this.player.name} secured a ${formatMoney(amount)} loan at ${(rate * 100).toFixed(1)}% APR.`);
+        
+        return { success: true };
+    }
+
+    playerBuyBond(amount, termQuarters, rate) {
+        /**
+         * Buy a bond for the player's company.
+         */
+        if (amount <= 0 || termQuarters <= 0 || rate <= 0) {
+            return { success: false, error: "Invalid bond parameters" };
+        }
+        
+        if (amount < 5000) {
+            return { success: false, error: "Minimum bond investment is $5,000" };
+        }
+        
+        if (amount > 5000000) {
+            return { success: false, error: "Maximum bond investment is $5,000,000" };
+        }
+        
+        // Check if player can afford it
+        if (this.player.cash < amount) {
+            return { success: false, error: "Insufficient funds to purchase this bond" };
+        }
+        
+        // Create bond
+        const bond = new this.Bond(amount, rate, termQuarters);
+        
+        // Deduct cash and add bond
+        this.player.cash -= amount;
+        this.player.bonds.push(bond);
+        
+        // Add news
+        this._pushNews(`${this.player.name} invested ${formatMoney(amount)} in bonds yielding ${(rate * 100).toFixed(1)}% annually.`);
+        
+        return { success: true };
+    }
+
+    playerInitiateAcquisition(targetName, price) {
+        /**
+         * Initiate an acquisition of an AI company.
+         */
+        if (!targetName || price <= 0) {
+            return { success: false, error: "Invalid acquisition parameters" };
+        }
+        
+        // Find the target company
+        const target = this.aiCompanies.find(company => company.name === targetName);
+        if (!target) {
+            return { success: false, error: "Target company not found" };
+        }
+        
+        // Check if already pending
+        const alreadyPending = this.pendingAcquisitions.some(acq => acq[1] === targetName);
+        if (alreadyPending) {
+            return { success: false, error: "Acquisition already pending for this company" };
+        }
+        
+        // Check if player can afford it
+        if (this.player.cash < price) {
+            return { success: false, error: "Insufficient funds for this acquisition" };
+        }
+        
+        // Check if target is protected by high growth
+        if (this._isTargetInTop2Growth(target)) {
+            return { success: false, error: "Target company is protected by high growth (>30% last quarter)" };
+        }
+        
+        // Add to pending acquisitions
+        this.pendingAcquisitions.push([this.player, targetName, price, this.turnIndex]);
+        
+        // Add news
+        this._pushNews(`${this.player.name} submitted acquisition offer for ${targetName} at ${formatMoney(price)}.`);
+        
+        return { success: true };
     }
 } 

@@ -1,6 +1,14 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { formatMoney } from '../game/utils.js';
+  import { fade, slide, scale } from 'svelte/transition';
+  import { quintOut } from 'svelte/easing';
+  import ProductsTab from './tabs/ProductsTab.svelte';
+  import OperationsTab from './tabs/OperationsTab.svelte';
+  import FinancesTab from './tabs/FinancesTab.svelte';
+  import AcquisitionsTab from './tabs/AcquisitionsTab.svelte';
+  import StockMarketTab from './tabs/StockMarketTab.svelte';
+  import Tooltip from './shared/Tooltip.svelte';
   
   export let gameEngine;
   
@@ -8,6 +16,11 @@
   
   let activeTab = 'summary';
   let processingTurn = false;
+  let showSaveNotification = false;
+  let showLoadNotification = false;
+  let saveError = '';
+  let loadError = '';
+  let showKeyboardHelp = false;
   
   $: player = gameEngine?.player;
   $: currentDate = gameEngine ? gameEngine._getDate() : [2000, 1];
@@ -15,9 +28,36 @@
   async function nextTurn() {
     if (processingTurn || gameEngine.gameOver) return;
     
+    console.log('Processing turn...', gameEngine.turnIndex);
     processingTurn = true;
-    await gameEngine.processTurn();
-    processingTurn = false;
+    
+    try {
+      const oldTurnIndex = gameEngine.turnIndex;
+      const oldCash = gameEngine.player.cash;
+      const oldMarketCap = gameEngine.player.marketCap;
+      
+      await gameEngine.processTurn();
+      
+      console.log('Turn processed successfully!');
+      console.log('Turn index:', oldTurnIndex, '->', gameEngine.turnIndex);
+      console.log('Player cash:', formatMoney(oldCash), '->', formatMoney(gameEngine.player.cash));
+      console.log('Player market cap:', formatMoney(oldMarketCap), '->', formatMoney(gameEngine.player.marketCap));
+      console.log('News feed length:', gameEngine.newsFeed.length);
+      console.log('AI companies:', gameEngine.aiCompanies.length);
+      
+      // Force Svelte reactivity by reassigning variables
+      gameEngine = gameEngine;
+      
+      // Manually trigger reactive updates for key variables
+      player = gameEngine.player;
+      currentDate = gameEngine._getDate();
+      
+    } catch (error) {
+      console.error('Error processing turn:', error);
+      console.error('Error stack:', error.stack);
+    } finally {
+      processingTurn = false;
+    }
     
     if (gameEngine.gameOver) {
       dispatch('gameOver');
@@ -27,7 +67,139 @@
   function setActiveTab(tab) {
     activeTab = tab;
   }
+
+  function saveGame() {
+    try {
+      const gameData = gameEngine.toJSON();
+      localStorage.setItem('technopoly_save', JSON.stringify(gameData));
+      
+      showSaveNotification = true;
+      saveError = '';
+      setTimeout(() => {
+        showSaveNotification = false;
+      }, 3000);
+    } catch (error) {
+      console.error('Failed to save game:', error);
+      saveError = 'Failed to save game. Please try again.';
+      setTimeout(() => {
+        saveError = '';
+      }, 5000);
+    }
+  }
+
+  function loadGame() {
+    try {
+      const savedData = localStorage.getItem('technopoly_save');
+      if (!savedData) {
+        loadError = 'No saved game found.';
+        setTimeout(() => {
+          loadError = '';
+        }, 5000);
+        return;
+      }
+
+      const gameData = JSON.parse(savedData);
+      
+      // Import the necessary classes for fromJSON
+      import('../game/engine.js').then(({ BusinessGameEngine }) => {
+        import('../game/events.js').then(({ EventManager }) => {
+          import('../game/ai.js').then(({ AIController }) => {
+            try {
+              // Create new instances of managers
+              const eventManager = new EventManager([]);
+              const aiController = new AIController(null);
+              
+              // Restore the game engine
+              const restoredEngine = BusinessGameEngine.fromJSON(gameData, eventManager, aiController);
+              
+              // Update the reference in aiController
+              aiController.engine = restoredEngine;
+              
+              // Replace the current game engine
+              gameEngine = restoredEngine;
+              
+              showLoadNotification = true;
+              loadError = '';
+              setTimeout(() => {
+                showLoadNotification = false;
+              }, 3000);
+              
+              // Force Svelte to re-render everything
+              activeTab = 'summary';
+            } catch (error) {
+              console.error('Failed to restore game:', error);
+              loadError = 'Failed to load game. Save file may be corrupted.';
+              setTimeout(() => {
+                loadError = '';
+              }, 5000);
+            }
+          });
+        });
+      });
+    } catch (error) {
+      console.error('Failed to load game:', error);
+      loadError = 'Failed to load game. Save file may be corrupted.';
+      setTimeout(() => {
+        loadError = '';
+      }, 5000);
+    }
+  }
+
+  function hasSavedGame() {
+    return localStorage.getItem('technopoly_save') !== null;
+  }
+
+  // Keyboard navigation support
+  function handleKeydown(event) {
+    // Ctrl/Cmd + S to save
+    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+      event.preventDefault();
+      saveGame();
+    }
+    
+    // Ctrl/Cmd + L to load
+    if ((event.ctrlKey || event.metaKey) && event.key === 'l') {
+      event.preventDefault();
+      if (hasSavedGame()) {
+        loadGame();
+      }
+    }
+    
+    // Space or Enter to process next turn
+    if ((event.key === ' ' || event.key === 'Enter') && !processingTurn && !gameEngine.gameOver) {
+      event.preventDefault();
+      nextTurn();
+    }
+    
+    // Number keys to switch tabs
+    const tabKeys = {
+      '1': 'summary',
+      '2': 'products', 
+      '3': 'finances',
+      '4': 'operations',
+      '5': 'market',
+      '6': 'acquisitions'
+    };
+    
+    if (tabKeys[event.key]) {
+      event.preventDefault();
+      setActiveTab(tabKeys[event.key]);
+    }
+    
+    // F1 or ? to show keyboard help
+    if (event.key === 'F1' || event.key === '?') {
+      event.preventDefault();
+      showKeyboardHelp = !showKeyboardHelp;
+    }
+    
+    // Escape to close help
+    if (event.key === 'Escape' && showKeyboardHelp) {
+      showKeyboardHelp = false;
+    }
+  }
 </script>
+
+<svelte:window on:keydown={handleKeydown} />
 
 <div class="min-h-screen bg-tech-dark text-white">
   <!-- Header -->
@@ -45,31 +217,67 @@
         {#if player}
           <div class="flex items-center space-x-4 text-sm">
             <div class="text-center">
-              <div class="text-gray-400">Cash</div>
-              <div class="text-tech-green font-bold">{formatMoney(player.cash)}</div>
+              <Tooltip text="Available cash for operations, hiring, and investments">
+                <div class="text-gray-400">Cash</div>
+                <div class="text-tech-green font-bold">{formatMoney(player.cash)}</div>
+              </Tooltip>
             </div>
             <div class="text-center">
-              <div class="text-gray-400">Market Cap</div>
-              <div class="text-tech-blue font-bold">{formatMoney(player.marketCap)}</div>
+              <Tooltip text="Company valuation based on revenue, assets, and debt">
+                <div class="text-gray-400">Market Cap</div>
+                <div class="text-tech-blue font-bold">{formatMoney(player.marketCap)}</div>
+              </Tooltip>
             </div>
             <div class="text-center">
-              <div class="text-gray-400">Employees</div>
-              <div class="text-white font-bold">{player.employees}/{player.employeeCapacity()}</div>
+              <Tooltip text="Current employees / Total capacity from all campuses">
+                <div class="text-gray-400">Employees</div>
+                <div class="text-white font-bold">{player.employees}/{player.employeeCapacity()}</div>
+              </Tooltip>
             </div>
           </div>
         {/if}
         
-        <button 
-          on:click={nextTurn}
-          disabled={processingTurn}
-          class="btn-primary px-6 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {#if processingTurn}
-            Processing...
-          {:else}
-            Next Turn
-          {/if}
-        </button>
+        <div class="flex items-center space-x-3">
+          <button 
+            on:click={saveGame}
+            class="btn-secondary px-4 py-2 text-sm transform hover:scale-105 transition-all duration-200 hover:shadow-lg"
+            title="Save Game"
+          >
+            💾 Save
+          </button>
+          
+          <button 
+            on:click={loadGame}
+            disabled={!hasSavedGame()}
+            class="btn-secondary px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 transition-all duration-200 hover:shadow-lg disabled:hover:scale-100"
+            title="Load Game"
+          >
+            📁 Load
+          </button>
+          
+          <button 
+            on:click={() => showKeyboardHelp = !showKeyboardHelp}
+            class="btn-secondary px-3 py-2 text-sm transform hover:scale-105 transition-all duration-200 hover:shadow-lg"
+            title="Keyboard Shortcuts (F1)"
+          >
+            ❓
+          </button>
+          
+          <button 
+            on:click={nextTurn}
+            disabled={processingTurn}
+            class="btn-primary px-6 py-2 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 transition-all duration-200 hover:shadow-lg disabled:hover:scale-100"
+          >
+            {#if processingTurn}
+              <span class="flex items-center space-x-2">
+                <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                <span>Processing...</span>
+              </span>
+            {:else}
+              Next Turn
+            {/if}
+          </button>
+        </div>
       </div>
     </div>
   </header>
@@ -105,7 +313,8 @@
     <!-- Main Tab Content -->
     <div class="lg:col-span-3">
       {#if activeTab === 'summary'}
-        <div class="bg-tech-accent/20 rounded-lg p-6 border border-tech-blue/20">
+        <div class="bg-tech-accent/20 rounded-lg p-6 border border-tech-blue/20" 
+             in:fade={{ duration: 300, easing: quintOut }}>
           <h2 class="text-2xl font-bold text-tech-green mb-6">Company Summary</h2>
           
           {#if player}
@@ -176,9 +385,35 @@
           {/if}
         </div>
         
-      {:else}
+      {:else if activeTab === 'products'}
+        <div in:fade={{ duration: 300, easing: quintOut }}>
+          <ProductsTab {gameEngine} />
+        </div>
+        
+      {:else if activeTab === 'operations'}
+        <div in:fade={{ duration: 300, easing: quintOut }}>
+          <OperationsTab {gameEngine} />
+        </div>
+        
+      {:else if activeTab === 'finances'}
+        <div in:fade={{ duration: 300, easing: quintOut }}>
+          <FinancesTab {gameEngine} />
+        </div>
+        
+      {:else if activeTab === 'acquisitions'}
+        <div in:fade={{ duration: 300, easing: quintOut }}>
+          <AcquisitionsTab {gameEngine} />
+        </div>
+        
+      {:else if activeTab === 'market'}
+        <div in:fade={{ duration: 300, easing: quintOut }}>
+          <StockMarketTab {gameEngine} />
+        </div>
+        
+              {:else}
         <!-- Placeholder for other tabs -->
-        <div class="bg-tech-accent/20 rounded-lg p-6 border border-tech-blue/20">
+        <div class="bg-tech-accent/20 rounded-lg p-6 border border-tech-blue/20"
+             in:fade={{ duration: 300, easing: quintOut }}>
           <h2 class="text-2xl font-bold text-tech-green mb-6">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h2>
           <div class="text-center py-16 text-gray-400">
             <p>This tab is under development.</p>
@@ -245,4 +480,132 @@
       </div>
     </div>
   </main>
+
+  <!-- Notification Toasts -->
+  {#if showSaveNotification}
+    <div class="fixed top-4 right-4 bg-tech-green text-tech-dark px-6 py-3 rounded-lg shadow-lg z-50"
+         in:scale={{ duration: 300, easing: quintOut }}
+         out:fade={{ duration: 200 }}>
+      <div class="flex items-center space-x-2">
+        <span class="text-lg">✅</span>
+        <span class="font-bold">Game Saved Successfully!</span>
+      </div>
+    </div>
+  {/if}
+
+  {#if showLoadNotification}
+    <div class="fixed top-4 right-4 bg-tech-blue text-white px-6 py-3 rounded-lg shadow-lg z-50"
+         in:scale={{ duration: 300, easing: quintOut }}
+         out:fade={{ duration: 200 }}>
+      <div class="flex items-center space-x-2">
+        <span class="text-lg">📁</span>
+        <span class="font-bold">Game Loaded Successfully!</span>
+      </div>
+    </div>
+  {/if}
+
+  {#if saveError}
+    <div class="fixed top-4 right-4 bg-tech-red text-white px-6 py-3 rounded-lg shadow-lg z-50"
+         in:scale={{ duration: 300, easing: quintOut }}
+         out:fade={{ duration: 200 }}>
+      <div class="flex items-center space-x-2">
+        <span class="text-lg">❌</span>
+        <span class="font-bold">{saveError}</span>
+      </div>
+    </div>
+  {/if}
+
+  {#if loadError}
+    <div class="fixed top-4 right-4 bg-tech-red text-white px-6 py-3 rounded-lg shadow-lg z-50"
+         in:scale={{ duration: 300, easing: quintOut }}
+         out:fade={{ duration: 200 }}>
+      <div class="flex items-center space-x-2">
+        <span class="text-lg">❌</span>
+        <span class="font-bold">{loadError}</span>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Keyboard Help Modal -->
+  {#if showKeyboardHelp}
+    <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+         in:fade={{ duration: 200 }}
+         out:fade={{ duration: 200 }}>
+      <div class="bg-tech-accent rounded-lg border border-tech-blue/30 w-full max-w-md"
+           in:scale={{ duration: 300, easing: quintOut }}>
+        <div class="p-6 border-b border-tech-blue/20">
+          <div class="flex justify-between items-center">
+            <h2 class="text-xl font-bold text-tech-green">Keyboard Shortcuts</h2>
+            <button 
+              on:click={() => showKeyboardHelp = false}
+              class="text-gray-400 hover:text-white transition-colors"
+            >
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        
+        <div class="p-6 space-y-4">
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div class="space-y-2">
+              <h3 class="font-bold text-tech-blue">Game Controls</h3>
+              <div class="space-y-1">
+                <div class="flex justify-between">
+                  <span class="text-gray-400">Next Turn:</span>
+                  <span class="text-white font-mono">Space / Enter</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-400">Save Game:</span>
+                  <span class="text-white font-mono">Ctrl+S</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-400">Load Game:</span>
+                  <span class="text-white font-mono">Ctrl+L</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="space-y-2">
+              <h3 class="font-bold text-tech-blue">Navigation</h3>
+              <div class="space-y-1">
+                <div class="flex justify-between">
+                  <span class="text-gray-400">Summary:</span>
+                  <span class="text-white font-mono">1</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-400">Products:</span>
+                  <span class="text-white font-mono">2</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-400">Finances:</span>
+                  <span class="text-white font-mono">3</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-400">Operations:</span>
+                  <span class="text-white font-mono">4</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-400">Stock Market:</span>
+                  <span class="text-white font-mono">5</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-400">M&A:</span>
+                  <span class="text-white font-mono">6</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="pt-4 border-t border-tech-blue/20">
+            <div class="flex justify-between text-sm">
+              <span class="text-gray-400">Show/Hide Help:</span>
+              <span class="text-white font-mono">F1 / ?</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div> 

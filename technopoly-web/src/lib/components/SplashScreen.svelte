@@ -1,13 +1,35 @@
 <script>
   import { createEventDispatcher } from 'svelte';
+  import TutorialScreen from './TutorialScreen.svelte';
   
   const dispatch = createEventDispatcher();
+  
+  let showTutorial = false;
   
   function startGame() {
     dispatch('startGame');
   }
+  
+  function showTutorialScreen() {
+    showTutorial = true;
+  }
+  
+  function hideTutorialScreen() {
+    showTutorial = false;
+  }
+
+  function loadGame() {
+    dispatch('loadGame');
+  }
+
+  function hasSavedGame() {
+    return localStorage.getItem('technopoly_save') !== null;
+  }
 </script>
 
+{#if showTutorial}
+  <TutorialScreen on:back={hideTutorialScreen} />
+{:else}
 <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-tech-dark via-tech-accent to-tech-dark">
   <div class="text-center max-w-4xl mx-auto px-8">
     <!-- Logo/Title -->
@@ -58,6 +80,22 @@
         Start New Game
       </button>
       
+      {#if hasSavedGame()}
+        <button 
+          on:click={loadGame}
+          class="btn-secondary text-lg px-8 py-3 transform hover:scale-105 transition-all duration-200 bg-tech-green/20 border-tech-green/50 text-tech-green hover:bg-tech-green/30"
+        >
+          📁 Continue Game
+        </button>
+      {/if}
+      
+      <button 
+        on:click={showTutorialScreen}
+        class="btn-secondary text-lg px-8 py-3 transform hover:scale-105 transition-all duration-200"
+      >
+        📚 Tutorial
+      </button>
+      
       <div class="text-sm text-gray-500">
         <p>Web version of Technopoly v1.5</p>
         <p class="mt-2">Built with Svelte • Powered by JavaScript</p>
@@ -65,6 +103,7 @@
     </div>
   </div>
 </div>
+{/if}
 
 <style>
   @keyframes pulse-glow {

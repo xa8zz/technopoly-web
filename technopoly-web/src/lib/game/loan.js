@@ -22,4 +22,30 @@ export class Loan {
         }
         return (monthlyR * this.principal) / (1 - Math.pow(1 + monthlyR, -n));
     }
+
+    toJSON() {
+        /**
+         * Serialize loan to plain JavaScript object.
+         */
+        return {
+            principal: this.principal,
+            annualRate: this.annualRate,
+            termRemainingMonths: this.termRemainingMonths,
+            monthlyPayment: this.monthlyPayment
+        };
+    }
+
+    static fromJSON(data) {
+        /**
+         * Recreate Loan instance from serialized data.
+         */
+        const loan = new Loan(data.principal, data.annualRate, data.termRemainingMonths);
+        
+        // The constructor already calculates monthlyPayment, but we can override if needed
+        if (data.monthlyPayment !== undefined) {
+            loan.monthlyPayment = data.monthlyPayment;
+        }
+        
+        return loan;
+    }
 } 
